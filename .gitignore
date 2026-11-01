@@ -1,0 +1,11 @@
+node_modules/
+build/
+dist/
+coverage/
+.aistudio/
+.netlify/
+.DS_Store
+*.log
+*.local
+.env*
+!.env.example
