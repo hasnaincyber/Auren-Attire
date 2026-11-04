@@ -57,8 +57,6 @@ export const Hero: React.FC = () => {
     } else {
       quickCategorySelect(currentSlide.categoryTarget);
     }
-    window.history.pushState({}, '', '/');
-    window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
   return (

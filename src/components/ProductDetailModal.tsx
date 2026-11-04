@@ -1,8 +1,7 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { 
   X, 
   Heart, 
-  Star, 
   ShoppingBag, 
   Truck, 
   ShieldCheck, 
@@ -38,7 +37,15 @@ export const ProductDetailModal: React.FC = () => {
   const [selectedSize, setSelectedSize] = useState<string>('');
   const [selectedColorIndex, setSelectedColorIndex] = useState<number>(0);
   const [quantity, setQuantity] = useState<number>(1);
-  const [activeTab, setActiveTab] = useState<'fabric' | 'shipping' | 'reviews'>('fabric');
+  const [activeTab, setActiveTab] = useState<'fabric' | 'shipping'>('fabric');
+
+  useEffect(() => {
+    setActiveImageIndex(0);
+    setSelectedSize('');
+    setSelectedColorIndex(0);
+    setQuantity(1);
+    setActiveTab('fabric');
+  }, [product?.id]);
 
   if (!product) return null;
 
@@ -161,30 +168,6 @@ export const ProductDetailModal: React.FC = () => {
               <h1 className="font-editorial text-2xl sm:text-3xl font-bold text-stone-900 leading-tight mb-2">
                 {product.title}
               </h1>
-
-              {/* Rating & Reviews */}
-              <div className="flex items-center gap-2 mb-4">
-                <div className="flex items-center text-amber-500">
-                  {[...Array(5)].map((_, i) => (
-                    <Star
-                      key={i}
-                      className={`w-4 h-4 ${
-                        i < Math.floor(product.rating)
-                          ? 'fill-amber-400 text-amber-500'
-                          : 'text-stone-300'
-                      }`}
-                    />
-                  ))}
-                </div>
-                <span className="text-xs font-semibold text-stone-700">{product.rating}</span>
-                <span className="text-stone-300">|</span>
-                <button
-                  onClick={() => setActiveTab('reviews')}
-                  className="text-xs text-amber-800 underline hover:text-amber-900"
-                >
-                  {product.reviewCount} Verified Customer Reviews
-                </button>
-              </div>
 
               {/* Price */}
               <div className="p-3.5 bg-stone-50 rounded-sm border border-stone-200/60 mb-5 flex items-baseline justify-between">
@@ -356,7 +339,7 @@ export const ProductDetailModal: React.FC = () => {
               </div>
             </div>
 
-            {/* Product Details Tabs (Fabric, Delivery, Customer Reviews) */}
+            {/* Product Details Tabs */}
             <div className="border-t border-stone-200 pt-4">
               <div className="flex gap-4 border-b border-stone-200 text-xs font-semibold uppercase tracking-wider mb-3">
                 <button
@@ -381,17 +364,6 @@ export const ProductDetailModal: React.FC = () => {
                 >
                   Pakistan Delivery
                 </button>
-                <button
-                  type="button"
-                  onClick={() => setActiveTab('reviews')}
-                  className={`pb-2 border-b-2 transition-colors ${
-                    activeTab === 'reviews'
-                      ? 'border-amber-700 text-amber-900'
-                      : 'border-transparent text-stone-500 hover:text-stone-800'
-                  }`}
-                >
-                  Customer Reviews ({product.reviews?.length || product.reviewCount})
-                </button>
               </div>
 
               {/* Tab Content */}
@@ -413,35 +385,6 @@ export const ProductDetailModal: React.FC = () => {
                   </div>
                 )}
 
-                {activeTab === 'reviews' && (
-                  <div className="space-y-3">
-                    {product.reviews && product.reviews.length > 0 ? (
-                      product.reviews.map((rev) => (
-                        <div key={rev.id} className="p-2.5 bg-stone-50 rounded border border-stone-200/60">
-                          <div className="flex items-center justify-between mb-1">
-                            <span className="font-semibold text-stone-900">{rev.author} ({rev.city})</span>
-                            <span className="text-[10px] text-stone-400">{rev.date}</span>
-                          </div>
-                          <div className="flex items-center gap-1 text-amber-500 mb-1">
-                            {[...Array(rev.rating)].map((_, i) => (
-                              <Star key={i} className="w-3 h-3 fill-amber-500" />
-                            ))}
-                            {rev.verifiedPurchase && (
-                              <span className="text-[10px] text-emerald-700 font-medium ml-2">
-                                ✓ Verified Buyer
-                              </span>
-                            )}
-                          </div>
-                          <p className="text-stone-700">{rev.comment}</p>
-                        </div>
-                      ))
-                    ) : (
-                      <div className="text-center py-4 text-stone-500">
-                        <p>No customer reviews yet. Be the first to review this ensemble!</p>
-                      </div>
-                    )}
-                  </div>
-                )}
               </div>
             </div>
 

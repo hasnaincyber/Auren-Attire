@@ -26,6 +26,8 @@ import {
   ShippingPolicyPage, 
   ReturnsPolicyPage 
 } from './components/InfoPages';
+import { PrivacyPolicyPage } from './components/PrivacyPolicyPage';
+import { TermsAndConditionsPage } from './components/TermsAndConditionsPage';
 import { Footer } from './components/Footer';
 import { 
   Home, 
@@ -46,12 +48,122 @@ const MainLayout: React.FC = () => {
     setIsCartOpen,
     toastMessage,
     quickCategorySelect,
-    navigateToBlog
+    navigateToBlog,
+    activeBlogSlug,
+    blogPosts,
+    selectedProduct,
+    filters
   } = useShop();
 
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
   const cartItemCount = cart.reduce((sum, item) => sum + item.quantity, 0);
+
+  useEffect(() => {
+    const pageMetadata: Record<string, { title: string; description: string }> = {
+      home: {
+        title: 'Auren Attire | Luxury Pakistani Kids & Baby Wear',
+        description: 'Discover premium Pakistani children’s clothing and luxury baby wear by Auren Attire. Handcrafted festive Eastern collections, soft cottons, and modern designs with nationwide delivery across Pakistan.',
+      },
+      shop: {
+        title: 'Shop Baby & Kids Clothing | Auren Attire',
+        description: 'Shop baby boys’ and girls’ clothing, newborn sets, rompers, and Pakistani festive wear at Auren Attire.',
+      },
+      blog: {
+        title: 'The Auren Journal | Auren Attire',
+        description: 'Explore baby clothing, sizing, fabric, and care guides from the Auren Attire journal.',
+      },
+      about: {
+        title: 'About Auren Attire | Baby & Kids Clothing',
+        description: 'Learn about Auren Attire and our approach to Pakistani baby and children’s clothing.',
+      },
+      contact: {
+        title: 'Contact Auren Attire',
+        description: 'Contact Auren Attire for help with baby clothing, orders, sizing, and delivery.',
+      },
+      shipping: {
+        title: 'Shipping Policy | Auren Attire',
+        description: 'Read Auren Attire’s delivery information for orders across Pakistan.',
+      },
+      returns: {
+        title: 'Returns & Exchange Policy | Auren Attire',
+        description: 'Read Auren Attire’s returns and exchange information before placing an order.',
+      },
+      privacy: {
+        title: 'Privacy Policy | Auren Attire',
+        description: 'Learn how Auren Attire handles information submitted through the storefront.',
+      },
+      terms: {
+        title: 'Terms and Conditions | Auren Attire',
+        description: 'Review the terms for browsing and shopping with Auren Attire.',
+      },
+      admin: {
+        title: 'Store Administration | Auren Attire',
+        description: 'Auren Attire store administration.',
+      },
+    };
+    const blogPost = currentView === 'blog-post'
+      ? blogPosts.find((post) => post.slug === activeBlogSlug)
+      : undefined;
+    const productPage = window.location.pathname.startsWith('/product/') ? selectedProduct : null;
+    const categoryMetadata = {
+      'baby-boys': {
+        title: 'Baby Boys’ Suits & Kurtas | Auren Attire',
+        description: 'Shop Pakistani baby boys’ suits and kurtas at Auren Attire, with nationwide delivery across Pakistan.',
+      },
+      'baby-girls': {
+        title: 'Baby Girls’ Festive Wear | Auren Attire',
+        description: 'Explore baby girls’ festive wear and traditional outfits at Auren Attire.',
+      },
+      'newborn-sets': {
+        title: 'Newborn Clothing & Sets | Auren Attire',
+        description: 'Shop newborn clothing and baby sets at Auren Attire, with nationwide delivery across Pakistan.',
+      },
+      rompers: {
+        title: 'Baby Rompers & Suits | Auren Attire',
+        description: 'Explore baby rompers and everyday suits at Auren Attire.',
+      },
+    } as const;
+    const categoryPage = currentView === 'shop' && filters.category !== 'all'
+      ? categoryMetadata[filters.category]
+      : undefined;
+    const metadata = blogPost
+      ? {
+          title: `${blogPost.title} | The Auren Journal`,
+          description: blogPost.excerpt,
+        }
+      : productPage
+        ? {
+            title: `${productPage.title} | Auren Attire`,
+            description: productPage.description,
+          }
+        : categoryPage ?? pageMetadata[currentView] ?? pageMetadata.home;
+    const canonicalUrl = `${window.location.origin}${window.location.pathname}`;
+
+    document.title = metadata.title;
+    const setMeta = (attribute: 'name' | 'property', key: string, content: string) => {
+      let tag = document.head.querySelector<HTMLMetaElement>(`meta[${attribute}="${key}"]`);
+      if (!tag) {
+        tag = document.createElement('meta');
+        tag.setAttribute(attribute, key);
+        document.head.appendChild(tag);
+      }
+      tag.content = content;
+    };
+    setMeta('name', 'description', metadata.description);
+    setMeta('property', 'og:title', metadata.title);
+    setMeta('property', 'og:description', metadata.description);
+    setMeta('property', 'og:url', canonicalUrl);
+    setMeta('name', 'robots', currentView === 'admin' ? 'noindex, nofollow' : 'index, follow');
+
+    let canonical = document.head.querySelector<HTMLLinkElement>('link[rel="canonical"]');
+    if (!canonical) {
+      canonical = document.createElement('link');
+      canonical.rel = 'canonical';
+      document.head.appendChild(canonical);
+    }
+    canonical.href = canonicalUrl;
+  }, [activeBlogSlug, blogPosts, currentView, filters.category, selectedProduct]);
 
   return (
     <div className="min-h-screen flex flex-col bg-[#fdfbf7] text-stone-900 font-sans selection:bg-[#eae3d9] selection:text-stone-900">
@@ -95,6 +207,8 @@ const MainLayout: React.FC = () => {
         {currentView === 'contact' && <ContactPage />}
         {currentView === 'shipping' && <ShippingPolicyPage />}
         {currentView === 'returns' && <ReturnsPolicyPage />}
+        {currentView === 'privacy' && <PrivacyPolicyPage />}
+        {currentView === 'terms' && <TermsAndConditionsPage />}
 
         {/* ADMIN DASHBOARD (Accessible by store owner) */}
         {currentView === 'admin' && <AdminDashboard />}
@@ -132,11 +246,7 @@ const MainLayout: React.FC = () => {
         className="fixed bottom-0 inset-x-0 z-40 bg-white/95 backdrop-blur-md border-t border-stone-200/90 text-stone-700 flex items-center justify-around py-2 pb-[max(0.6rem,env(safe-area-inset-bottom))] lg:hidden shadow-[0_-4px_16px_rgba(0,0,0,0.06)]"
       >
         <button
-          onClick={() => {
-            setCurrentView('home');
-            window.history.pushState({}, '', '/');
-            window.scrollTo({ top: 0, behavior: 'smooth' });
-          }}
+          onClick={() => setCurrentView('home')}
           className={`flex flex-col items-center gap-1 text-[10px] font-medium transition-colors ${
             currentView === 'home' ? 'text-stone-950 font-bold' : 'text-stone-500 hover:text-stone-950'
           }`}

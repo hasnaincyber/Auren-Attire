@@ -3,8 +3,6 @@ import {
   X, 
   CheckCircle2, 
   Truck, 
-  Building2, 
-  CreditCard, 
   MessageCircle, 
   FileText, 
   AlertCircle,
@@ -43,12 +41,13 @@ export const CheckoutModal: React.FC = () => {
   const [orderNotes, setOrderNotes] = useState('');
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('cod');
   const [formError, setFormError] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   if (!isCheckoutOpen) return null;
 
   const totals = calculateCartTotals(cart, couponDiscount);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
     if (!fullName.trim()) {
@@ -79,7 +78,18 @@ export const CheckoutModal: React.FC = () => {
       orderNotes
     };
 
-    placeOrder(customerDetails, paymentMethod);
+    setIsSubmitting(true);
+    try {
+      await placeOrder(customerDetails, paymentMethod);
+    } catch (error) {
+      setFormError(
+        error instanceof Error
+          ? error.message
+          : 'We could not save your order. Please try again or contact us on WhatsApp.'
+      );
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const handleClose = () => {
@@ -117,13 +127,13 @@ export const CheckoutModal: React.FC = () => {
             </div>
 
             <span className="text-xs uppercase tracking-widest text-amber-800 font-semibold block mb-1">
-              Order Registered
+              Order Saved
             </span>
             <h2 className="font-editorial text-3xl font-bold text-stone-900 mb-2">
               Thank You for Choosing Auren Attire!
             </h2>
             <p className="text-xs text-stone-600 max-w-md mx-auto mb-6">
-              Your order has been recorded in our store queue. We have generated order reference: <strong className="text-stone-900">{lastPlacedOrder.orderNumber}</strong>.
+              Your order has been saved securely. Reference: <strong className="text-stone-900">{lastPlacedOrder.orderNumber}</strong>.
             </p>
 
             {/* Order Summary Box */}
@@ -147,7 +157,7 @@ export const CheckoutModal: React.FC = () => {
               <div className="flex justify-between">
                 <span className="text-stone-500">Payment Mode</span>
                 <span className="font-semibold uppercase text-amber-900">
-                  {lastPlacedOrder.paymentMethod === 'cod' ? 'Cash on Delivery (COD)' : lastPlacedOrder.paymentMethod === 'bank_transfer' ? 'Direct Bank Transfer' : 'Online Card'}
+                  Cash on Delivery (COD)
                 </span>
               </div>
               <div className="flex justify-between border-t border-stone-200 pt-2 text-sm font-bold text-stone-900">
@@ -352,49 +362,6 @@ export const CheckoutModal: React.FC = () => {
                     </p>
                   </label>
 
-                  {/* Bank Transfer */}
-                  <label className={`block p-3.5 rounded border cursor-pointer transition-colors ${
-                    paymentMethod === 'bank_transfer' ? 'border-amber-700 bg-amber-50/50' : 'border-stone-200 hover:border-stone-300'
-                  }`}>
-                    <div className="flex items-center gap-2.5">
-                      <input
-                        type="radio"
-                        name="paymentMethod"
-                        checked={paymentMethod === 'bank_transfer'}
-                        onChange={() => setPaymentMethod('bank_transfer')}
-                        className="accent-amber-700"
-                      />
-                      <div className="flex items-center gap-2">
-                        <Building2 className="w-4 h-4 text-stone-700" />
-                        <span className="text-xs font-bold text-stone-900">Direct Bank Transfer</span>
-                      </div>
-                    </div>
-                    <p className="text-[11px] text-stone-600 mt-1 pl-6">
-                      Meezan Bank / HBL / Bank Alfalah IBAN provided upon confirmation.
-                    </p>
-                  </label>
-
-                  {/* Online Card / Wallet */}
-                  <label className={`block p-3.5 rounded border cursor-pointer transition-colors ${
-                    paymentMethod === 'card_online' ? 'border-amber-700 bg-amber-50/50' : 'border-stone-200 hover:border-stone-300'
-                  }`}>
-                    <div className="flex items-center gap-2.5">
-                      <input
-                        type="radio"
-                        name="paymentMethod"
-                        checked={paymentMethod === 'card_online'}
-                        onChange={() => setPaymentMethod('card_online')}
-                        className="accent-amber-700"
-                      />
-                      <div className="flex items-center gap-2">
-                        <CreditCard className="w-4 h-4 text-stone-700" />
-                        <span className="text-xs font-bold text-stone-900">Visa / Mastercard / JazzCash</span>
-                      </div>
-                    </div>
-                    <p className="text-[11px] text-stone-600 mt-1 pl-6">
-                      Online payment gateway integration will sync via backend credentials.
-                    </p>
-                  </label>
                 </div>
 
                 {/* Items Summary */}
@@ -428,10 +395,11 @@ export const CheckoutModal: React.FC = () => {
                 {/* Submit button */}
                 <button
                   type="submit"
-                  className="w-full py-3.5 bg-stone-900 hover:bg-stone-800 text-white font-semibold text-xs uppercase tracking-widest rounded-sm transition-colors flex items-center justify-center gap-2 shadow-md cursor-pointer mt-4"
+                  disabled={isSubmitting}
+                  className="w-full py-3.5 bg-stone-900 hover:bg-stone-800 disabled:opacity-60 disabled:cursor-not-allowed text-white font-semibold text-xs uppercase tracking-widest rounded-sm transition-colors flex items-center justify-center gap-2 shadow-md cursor-pointer mt-4"
                 >
                   <ShieldCheck className="w-4 h-4 text-amber-400" />
-                  <span>Place Order ({formatPKR(totals.total)})</span>
+                  <span>{isSubmitting ? 'Saving Order…' : `Place Order (${formatPKR(totals.total)})`}</span>
                 </button>
 
                 <p className="text-[10px] text-center text-stone-500">

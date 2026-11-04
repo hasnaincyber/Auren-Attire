@@ -1,14 +1,12 @@
-import React, { useState } from 'react';
+import React from 'react';
 import { 
   MessageCircle, 
   Mail, 
   Phone, 
-  Check, 
   Truck, 
   ShieldCheck, 
   RotateCcw,
   Ruler,
-  Lock,
   BookOpen
 } from 'lucide-react';
 import { useShop } from '../context/ShopContext';
@@ -19,21 +17,8 @@ export const Footer: React.FC = () => {
     setCurrentView, 
     quickCategorySelect, 
     setIsSizeGuideOpen, 
-    showToast,
-    navigateToBlog,
-    isAdminUnlocked 
+    navigateToBlog
   } = useShop();
-  
-  const [newsletterEmail, setNewsletterEmail] = useState('');
-  const [subscribed, setSubscribed] = useState(false);
-
-  const handleSubscribe = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (newsletterEmail.trim()) {
-      setSubscribed(true);
-      showToast('Welcome to the Auren Attire family! Use code AUREN10 for 10% off your baby wear order.');
-    }
-  };
 
   return (
     <footer className="bg-[#ede7de] text-stone-700 border-t border-[#dfd7cc] pb-24 lg:pb-12">
@@ -191,11 +176,7 @@ export const Footer: React.FC = () => {
               </li>
               <li>
                 <button
-                  onClick={() => {
-                    setCurrentView('shipping');
-                    window.history.pushState({}, '', '/');
-                    window.scrollTo({ top: 0, behavior: 'smooth' });
-                  }}
+                  onClick={() => setCurrentView('shipping')}
                   className="hover:text-stone-950 transition-colors"
                 >
                   Nationwide Delivery Info
@@ -203,11 +184,7 @@ export const Footer: React.FC = () => {
               </li>
               <li>
                 <button
-                  onClick={() => {
-                    setCurrentView('returns');
-                    window.history.pushState({}, '', '/');
-                    window.scrollTo({ top: 0, behavior: 'smooth' });
-                  }}
+                  onClick={() => setCurrentView('returns')}
                   className="hover:text-stone-950 transition-colors"
                 >
                   7-Day Size Exchange
@@ -215,11 +192,7 @@ export const Footer: React.FC = () => {
               </li>
               <li>
                 <button
-                  onClick={() => {
-                    setCurrentView('about');
-                    window.history.pushState({}, '', '/');
-                    window.scrollTo({ top: 0, behavior: 'smooth' });
-                  }}
+                  onClick={() => setCurrentView('about')}
                   className="hover:text-stone-950 transition-colors"
                 >
                   About Our Brand
@@ -227,14 +200,26 @@ export const Footer: React.FC = () => {
               </li>
               <li>
                 <button
-                  onClick={() => {
-                    setCurrentView('contact');
-                    window.history.pushState({}, '', '/');
-                    window.scrollTo({ top: 0, behavior: 'smooth' });
-                  }}
+                  onClick={() => setCurrentView('contact')}
                   className="hover:text-stone-950 transition-colors"
                 >
                   Contact Us
+                </button>
+              </li>
+              <li>
+                <button
+                  onClick={() => setCurrentView('privacy')}
+                  className="hover:text-stone-950 transition-colors"
+                >
+                  Privacy Policy
+                </button>
+              </li>
+              <li>
+                <button
+                  onClick={() => setCurrentView('terms')}
+                  className="hover:text-stone-950 transition-colors"
+                >
+                  Terms and Conditions
                 </button>
               </li>
             </ul>
@@ -246,37 +231,8 @@ export const Footer: React.FC = () => {
               Private Circle
             </h3>
             <p className="text-xs text-stone-600 mb-3 font-light leading-relaxed">
-              Receive previews of upcoming newborn collections and private promotions.
+              Email updates are not available yet. Contact us on WhatsApp for collection news.
             </p>
-
-            {subscribed ? (
-              <div className="p-2.5 bg-white border border-stone-300 rounded text-xs text-stone-800 space-y-0.5">
-                <div className="flex items-center gap-1.5 font-bold">
-                  <Check className="w-3.5 h-3.5 text-emerald-700" />
-                  <span>VIP Invitation Activated!</span>
-                </div>
-                <p className="text-[10px] text-stone-600">
-                  Use coupon <strong>AUREN10</strong> for 10% off.
-                </p>
-              </div>
-            ) : (
-              <form onSubmit={handleSubscribe} className="space-y-2">
-                <input
-                  type="email"
-                  required
-                  value={newsletterEmail}
-                  onChange={(e) => setNewsletterEmail(e.target.value)}
-                  placeholder="Enter email address..."
-                  className="w-full bg-white border border-stone-300 text-xs text-stone-800 px-3 py-2 rounded focus:outline-none focus:border-stone-900"
-                />
-                <button
-                  type="submit"
-                  className="w-full py-2 bg-stone-900 hover:bg-stone-800 text-white font-semibold text-xs uppercase tracking-wider rounded transition-colors cursor-pointer"
-                >
-                  Join VIP List
-                </button>
-              </form>
-            )}
 
             <div className="mt-3">
               <a
@@ -305,21 +261,7 @@ export const Footer: React.FC = () => {
               TCS / Trax Express
             </span>
 
-            {/* Discreet Admin Link for store owner only */}
-            {isAdminUnlocked ? (
-              <button
-                onClick={() => setCurrentView('admin')}
-                className="text-[10px] text-stone-700 hover:text-stone-950 underline font-mono flex items-center gap-1"
-                title="Admin Dashboard (Unlocked)"
-              >
-                <Lock className="w-3 h-3 text-emerald-700" />
-                <span>Store Admin</span>
-              </button>
-            ) : (
-              <span className="text-[10px] text-stone-400">
-                Pakistan
-              </span>
-            )}
+            <span className="text-[10px] text-stone-400">Pakistan</span>
           </div>
         </div>
       </div>

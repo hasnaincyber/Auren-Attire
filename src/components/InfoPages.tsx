@@ -6,7 +6,6 @@ import {
   MessageCircle, 
   Truck, 
   RotateCcw, 
-  CheckCircle2, 
   ShieldCheck, 
   Sparkles,
   Send
@@ -82,7 +81,6 @@ export const AboutPage: React.FC = () => {
         <button
           onClick={() => {
             setCurrentView('shop');
-            window.history.pushState({}, '', '/');
           }}
           className="px-8 py-3.5 bg-stone-900 hover:bg-stone-800 text-white text-xs font-semibold uppercase tracking-widest rounded-sm transition-colors cursor-pointer"
         >
@@ -103,12 +101,20 @@ export const ContactPage: React.FC = () => {
     subject: '',
     message: ''
   });
-  const [isSubmitted, setIsSubmitted] = useState(false);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    setIsSubmitted(true);
-    showToast('Your message has been received! Our stylist will contact you shortly.');
+    const subject = formData.subject.trim() || 'Auren Attire customer inquiry';
+    const body = [
+      `Name: ${formData.name}`,
+      `Phone / WhatsApp: ${formData.phone}`,
+      `Email: ${formData.email || 'Not provided'}`,
+      `City: ${formData.city}`,
+      '',
+      formData.message,
+    ].join('\n');
+    window.location.href = `mailto:${STORE_EMAIL}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+    showToast('An email draft is opening. Press Send in your email app to contact us.');
   };
 
   return (
@@ -181,27 +187,12 @@ export const ContactPage: React.FC = () => {
 
         {/* Contact Form */}
         <div className="bg-white p-6 sm:p-8 rounded-sm border border-stone-200 shadow-xs">
-          {isSubmitted ? (
-            <div className="text-center py-10">
-              <CheckCircle2 className="w-12 h-12 text-emerald-600 mx-auto mb-3" />
-              <h3 className="font-editorial text-2xl font-bold text-stone-900 mb-1">Message Sent</h3>
-              <p className="text-xs text-stone-600 max-w-sm mx-auto mb-6 font-light">
-                Thank you for contacting us. We will get in touch with you at <strong className="font-mono">{formData.phone}</strong> or <strong className="font-mono">{formData.email}</strong> shortly.
-              </p>
-              <button
-                onClick={() => setIsSubmitted(false)}
-                className="px-6 py-2.5 bg-stone-900 text-white text-xs font-semibold uppercase tracking-wider rounded"
-              >
-                Send Another Message
-              </button>
-            </div>
-          ) : (
-            <form onSubmit={handleSubmit} className="space-y-4">
+          <form onSubmit={handleSubmit} className="space-y-4">
               <h3 className="font-editorial text-xl font-bold text-stone-900 mb-1">
                 Send Us a Message
               </h3>
               <p className="text-xs text-stone-500 mb-4 font-light">
-                Our customer care team will respond within a few hours.
+                Submitting opens an email draft. Your message is sent only after you press Send in your email app.
               </p>
 
               <div>
@@ -268,10 +259,9 @@ export const ContactPage: React.FC = () => {
                 className="w-full py-3 bg-stone-900 hover:bg-stone-800 text-white font-semibold text-xs uppercase tracking-widest rounded transition-colors flex items-center justify-center gap-2 cursor-pointer shadow-xs"
               >
                 <Send className="w-4 h-4" />
-                <span>Submit Inquiry</span>
+                <span>Prepare Email</span>
               </button>
-            </form>
-          )}
+          </form>
         </div>
       </div>
     </div>

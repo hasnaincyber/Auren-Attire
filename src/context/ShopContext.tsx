@@ -13,7 +13,7 @@ import {
 } from '../types';
 import { INITIAL_PRODUCTS } from '../data/initialProducts';
 import { INITIAL_BLOG_POSTS } from '../data/initialBlogPosts';
-import { calculateCartTotals } from '../utils/shop';
+import { supabase } from '../lib/supabase';
 
 interface ShopContextType {
   products: Product[];
@@ -24,14 +24,11 @@ interface ShopContextType {
   activeBlogSlug: string | null;
   navigateToBlog: () => void;
   navigateToBlogPost: (slug: string) => void;
-  addBlogPost: (post: Omit<BlogPost, 'id' | 'publishedAt'>) => void;
-  updateBlogPost: (id: string, updates: Partial<BlogPost>) => void;
-  deleteBlogPost: (id: string) => void;
+  navigateToProduct: (slug: string) => void;
+  addBlogPost: (post: Omit<BlogPost, 'id' | 'publishedAt'>) => Promise<void>;
+  updateBlogPost: (id: string, updates: Partial<BlogPost>) => Promise<void>;
+  deleteBlogPost: (id: string) => Promise<void>;
   getBlogPostBySlug: (slug: string) => BlogPost | undefined;
-  // Admin privacy / unlock
-  isAdminUnlocked: boolean;
-  unlockAdmin: (passcode: string) => boolean;
-  lockAdmin: () => void;
   // Shopping Cart & Wishlist
   cart: CartItem[];
   wishlist: string[];
@@ -61,12 +58,11 @@ interface ShopContextType {
   orders: Order[];
   lastPlacedOrder: Order | null;
   setLastPlacedOrder: (order: Order | null) => void;
-  placeOrder: (customer: CustomerDetails, paymentMethod: PaymentMethod) => Order;
+  placeOrder: (customer: CustomerDetails, paymentMethod: PaymentMethod) => Promise<Order>;
   // Admin dynamic product management
-  addProduct: (product: Omit<Product, 'id' | 'createdAt'>) => void;
-  updateProduct: (id: string, updates: Partial<Product>) => void;
-  deleteProduct: (id: string) => void;
-  resetCatalog: () => void;
+  addProduct: (product: Omit<Product, 'id' | 'createdAt'>) => Promise<void>;
+  updateProduct: (id: string, updates: Partial<Product>) => Promise<void>;
+  deleteProduct: (id: string) => Promise<void>;
   // Active toast/notice
   toastMessage: string | null;
   showToast: (message: string) => void;
@@ -84,14 +80,199 @@ const defaultFilters: FilterState = {
   inStockOnly: false
 };
 
+const viewPaths: Partial<Record<PageView, string>> = {
+  home: '/',
+  shop: '/shop',
+  blog: '/blog',
+  'blog-post': '/blog',
+  about: '/about',
+  contact: '/contact',
+  shipping: '/shipping-policy',
+  returns: '/return-policy',
+  privacy: '/privacy-policy',
+  terms: '/terms-and-conditions',
+  admin: '/admin',
+};
+
+function viewFromPath(path: string): PageView {
+  const normalizedPath = path.replace(/\/+$/, '') || '/';
+  if (normalizedPath.startsWith('/blog/')) return 'blog-post';
+  if (normalizedPath === '/blog') return 'blog';
+  if (normalizedPath === '/about') return 'about';
+  if (normalizedPath === '/contact') return 'contact';
+  if (normalizedPath === '/shipping-policy') return 'shipping';
+  if (normalizedPath === '/return-policy') return 'returns';
+  if (normalizedPath === '/privacy-policy') return 'privacy';
+  if (normalizedPath === '/terms-and-conditions') return 'terms';
+  if (normalizedPath === '/admin') return 'admin';
+  if (
+    normalizedPath === '/shop' ||
+    normalizedPath.startsWith('/category/') ||
+    normalizedPath.startsWith('/product/')
+  ) {
+    return 'shop';
+  }
+  return 'home';
+}
+
+function filtersFromPath(path: string): FilterState {
+  const category = path.match(/^\/category\/([^/]+)\/?$/)?.[1];
+  if (
+    category === 'baby-boys' ||
+    category === 'baby-girls' ||
+    category === 'newborn-sets' ||
+    category === 'rompers'
+  ) {
+    return { ...defaultFilters, category };
+  }
+  return defaultFilters;
+}
+
 const ShopContext = createContext<ShopContextType | undefined>(undefined);
 
 const LOCAL_STORAGE_KEY_PRODUCTS = 'auren_attire_baby_products_v3';
 const LOCAL_STORAGE_KEY_BLOGS = 'auren_attire_blogs_v3';
 const LOCAL_STORAGE_KEY_CART = 'auren_attire_cart_v3';
 const LOCAL_STORAGE_KEY_WISHLIST = 'auren_attire_wishlist_v3';
-const LOCAL_STORAGE_KEY_ORDERS = 'auren_attire_orders_v3';
-const LOCAL_STORAGE_KEY_ADMIN = 'auren_attire_admin_auth_v3';
+
+type StoreProductRow = {
+  id: string;
+  sku: string;
+  slug: string;
+  title: string;
+  category: string;
+  sub_category: string;
+  occasion: Product['occasion'];
+  price: number;
+  compare_at_price: number | null;
+  images: unknown;
+  sizes: unknown;
+  colors: unknown;
+  description: string;
+  fabric_details: string;
+  care_instructions: string;
+  is_new_arrival: boolean;
+  is_best_seller: boolean;
+  stock: number;
+  featured: boolean;
+  created_at: string;
+};
+
+type StoreBlogRow = {
+  id: string;
+  slug: string;
+  title: string;
+  category: BlogPost['category'];
+  author: string;
+  read_time: string;
+  cover_image: string;
+  excerpt: string;
+  content: string;
+  tags: unknown;
+  is_published: boolean;
+  published_at: string | null;
+  created_at: string;
+};
+
+function mapStoreProduct(row: StoreProductRow): Product {
+  const category: CategoryType =
+    row.category === 'baby-boys' ||
+    row.category === 'baby-girls' ||
+    row.category === 'newborn-sets' ||
+    row.category === 'rompers'
+      ? row.category
+      : 'baby-boys';
+  const images = Array.isArray(row.images)
+    ? row.images.filter((image): image is string => typeof image === 'string')
+    : [];
+  const sizes = Array.isArray(row.sizes)
+    ? row.sizes.filter((size): size is string => typeof size === 'string')
+    : [];
+  const colors = Array.isArray(row.colors)
+    ? row.colors.filter(
+        (color): color is ProductColor =>
+          typeof color === 'object' &&
+          color !== null &&
+          'name' in color &&
+          typeof color.name === 'string' &&
+          'hex' in color &&
+          typeof color.hex === 'string'
+      )
+    : [];
+
+  return {
+    id: row.id,
+    sku: row.sku,
+    slug: row.slug,
+    title: row.title,
+    category,
+    subCategory: row.sub_category,
+    occasion: row.occasion,
+    price: Number(row.price),
+    compareAtPrice: row.compare_at_price == null ? undefined : Number(row.compare_at_price),
+    images,
+    sizes,
+    colors,
+    description: row.description,
+    fabricDetails: row.fabric_details,
+    careInstructions: row.care_instructions,
+    isNewArrival: row.is_new_arrival,
+    isBestSeller: row.is_best_seller,
+    stock: Number(row.stock),
+    rating: 0,
+    reviewCount: 0,
+    featured: row.featured,
+    createdAt: row.created_at,
+  };
+}
+
+function mapStoreBlogPost(row: StoreBlogRow): BlogPost {
+  const tags = Array.isArray(row.tags)
+    ? row.tags.filter((tag): tag is string => typeof tag === 'string')
+    : [];
+
+  return {
+    id: row.id,
+    slug: row.slug,
+    title: row.title,
+    category: row.category,
+    author: row.author,
+    readTime: row.read_time,
+    coverImage: row.cover_image,
+    excerpt: row.excerpt,
+    content: row.content,
+    tags,
+    isPublished: row.is_published,
+    publishedAt: new Date(row.published_at ?? row.created_at).toLocaleDateString('en-GB', {
+      day: '2-digit',
+      month: 'long',
+      year: 'numeric',
+    }),
+  };
+}
+
+function toStoreProductRow(product: Product) {
+  return {
+    sku: product.sku,
+    slug: product.slug,
+    title: product.title,
+    category: product.category,
+    sub_category: product.subCategory,
+    occasion: product.occasion,
+    price: product.price,
+    compare_at_price: product.compareAtPrice ?? null,
+    images: product.images,
+    sizes: product.sizes,
+    colors: product.colors,
+    description: product.description,
+    fabric_details: product.fabricDetails,
+    care_instructions: product.careInstructions,
+    is_new_arrival: product.isNewArrival,
+    is_best_seller: product.isBestSeller,
+    stock: product.stock,
+    featured: product.featured ?? false,
+  };
+}
 
 export const ShopProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   // 1. Dynamic Products with localStorage persistence
@@ -109,6 +290,7 @@ export const ShopProvider: React.FC<{ children: React.ReactNode }> = ({ children
   });
 
   useEffect(() => {
+    if (supabase) return;
     try {
       localStorage.setItem(LOCAL_STORAGE_KEY_PRODUCTS, JSON.stringify(products));
     } catch {
@@ -131,6 +313,7 @@ export const ShopProvider: React.FC<{ children: React.ReactNode }> = ({ children
   });
 
   useEffect(() => {
+    if (supabase) return;
     try {
       localStorage.setItem(LOCAL_STORAGE_KEY_BLOGS, JSON.stringify(blogPosts));
     } catch {
@@ -138,67 +321,46 @@ export const ShopProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   }, [blogPosts]);
 
-  // 3. Admin Security Lock
-  const [isAdminUnlocked, setIsAdminUnlocked] = useState<boolean>(() => {
-    try {
-      // Check query param e.g. ?admin=1
-      if (typeof window !== 'undefined' && window.location.search.includes('admin=1')) {
-        return true;
-      }
-      return localStorage.getItem(LOCAL_STORAGE_KEY_ADMIN) === 'true';
-    } catch {
-      return false;
-    }
-  });
-
-  const unlockAdmin = (passcode: string): boolean => {
-    if (passcode.trim() === '2007' || passcode.trim().toLowerCase() === 'auren2007') {
-      setIsAdminUnlocked(true);
-      try {
-        localStorage.setItem(LOCAL_STORAGE_KEY_ADMIN, 'true');
-      } catch {}
-      showToast('Admin mode unlocked.');
-      return true;
-    }
-    return false;
-  };
-
-  const lockAdmin = () => {
-    setIsAdminUnlocked(false);
-    try {
-      localStorage.removeItem(LOCAL_STORAGE_KEY_ADMIN);
-    } catch {}
-    showToast('Admin locked.');
-  };
-
   // 4. Navigation View & Active Blog Slug
-  const [currentView, setCurrentView] = useState<PageView>(() => {
-    if (typeof window !== 'undefined') {
-      const path = window.location.pathname;
-      if (path.startsWith('/blog/')) {
-        return 'blog-post';
-      }
-      if (path === '/blog') {
-        return 'blog';
-      }
-    }
-    return 'home';
-  });
+  const [currentView, setCurrentViewState] = useState<PageView>(() =>
+    typeof window === 'undefined' ? 'home' : viewFromPath(window.location.pathname)
+  );
 
   const [activeBlogSlug, setActiveBlogSlug] = useState<string | null>(() => {
     if (typeof window !== 'undefined') {
       const path = window.location.pathname;
       if (path.startsWith('/blog/')) {
-        return path.replace('/blog/', '');
+        return decodeURIComponent(path.slice('/blog/'.length));
       }
     }
     return null;
   });
 
+  const [activeProductSlug, setActiveProductSlug] = useState<string | null>(() => {
+    if (typeof window !== 'undefined') {
+      const match = window.location.pathname.match(/^\/product\/([^/]+)\/?$/);
+      return match ? decodeURIComponent(match[1]) : null;
+    }
+    return null;
+  });
+
+  const setCurrentView = (view: PageView) => {
+    setCurrentViewState(view);
+    if (typeof window === 'undefined') return;
+
+    const path = view === 'blog-post' && activeBlogSlug
+      ? `/blog/${encodeURIComponent(activeBlogSlug)}`
+      : viewPaths[view] ?? '/';
+    if (window.location.pathname !== path) {
+      window.history.pushState({}, '', path);
+    }
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
   // Handle URL history syncing
   const navigateToBlog = () => {
     setActiveBlogSlug(null);
-    setCurrentView('blog');
+    setCurrentViewState('blog');
     if (typeof window !== 'undefined') {
       window.history.pushState({}, '', '/blog');
       window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -207,9 +369,9 @@ export const ShopProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const navigateToBlogPost = (slug: string) => {
     setActiveBlogSlug(slug);
-    setCurrentView('blog-post');
+    setCurrentViewState('blog-post');
     if (typeof window !== 'undefined') {
-      window.history.pushState({}, '', `/blog/${slug}`);
+      window.history.pushState({}, '', `/blog/${encodeURIComponent(slug)}`);
       window.scrollTo({ top: 0, behavior: 'smooth' });
     }
   };
@@ -218,15 +380,15 @@ export const ShopProvider: React.FC<{ children: React.ReactNode }> = ({ children
   useEffect(() => {
     const handlePopState = () => {
       const path = window.location.pathname;
+      const productMatch = path.match(/^\/product\/([^/]+)\/?$/);
+      setActiveProductSlug(productMatch ? decodeURIComponent(productMatch[1]) : null);
       if (path.startsWith('/blog/')) {
-        setActiveBlogSlug(path.replace('/blog/', ''));
-        setCurrentView('blog-post');
-      } else if (path === '/blog') {
-        setActiveBlogSlug(null);
-        setCurrentView('blog');
+        setActiveBlogSlug(decodeURIComponent(path.slice('/blog/'.length)));
       } else {
-        setCurrentView('home');
+        setActiveBlogSlug(null);
       }
+      setCurrentViewState(viewFromPath(path));
+      setFilters(filtersFromPath(path));
     };
     window.addEventListener('popstate', handlePopState);
     return () => window.removeEventListener('popstate', handlePopState);
@@ -270,27 +432,11 @@ export const ShopProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   }, [wishlist]);
 
-  // 7. Orders State
-  const [orders, setOrders] = useState<Order[]>(() => {
-    try {
-      const stored = localStorage.getItem(LOCAL_STORAGE_KEY_ORDERS);
-      if (stored) return JSON.parse(stored);
-    } catch {
-      // ignore
-    }
-    return [];
-  });
-
-  useEffect(() => {
-    try {
-      localStorage.setItem(LOCAL_STORAGE_KEY_ORDERS, JSON.stringify(orders));
-    } catch {
-      // ignore
-    }
-  }, [orders]);
+  // Customer orders are stored in Supabase, never in browser localStorage.
+  const [orders, setOrders] = useState<Order[]>([]);
 
   // 8. Modals
-  const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
+  const [selectedProduct, setSelectedProductState] = useState<Product | null>(null);
   const [isCartOpen, setIsCartOpen] = useState<boolean>(false);
   const [isCheckoutOpen, setIsCheckoutOpen] = useState<boolean>(false);
   const [isSizeGuideOpen, setIsSizeGuideOpen] = useState<boolean>(false);
@@ -298,7 +444,9 @@ export const ShopProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
   // 9. Filter State
-  const [filters, setFilters] = useState<FilterState>(defaultFilters);
+  const [filters, setFilters] = useState<FilterState>(() =>
+    typeof window === 'undefined' ? defaultFilters : filtersFromPath(window.location.pathname)
+  );
 
   // 10. Coupon State
   const [couponCode, setCouponCode] = useState<string>('');
@@ -311,6 +459,78 @@ export const ShopProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setToastMessage((prev) => (prev === message ? null : prev));
     }, 3200);
   };
+
+  const setSelectedProduct = (product: Product | null) => {
+    setSelectedProductState(product);
+    setActiveProductSlug(product?.slug ?? null);
+    if (typeof window === 'undefined') return;
+
+    if (product) {
+      setCurrentViewState('shop');
+      const path = `/product/${encodeURIComponent(product.slug)}`;
+      if (window.location.pathname !== path) {
+        window.history.pushState({}, '', path);
+      }
+    } else if (window.location.pathname.startsWith('/product/')) {
+      window.history.replaceState({}, '', '/shop');
+      setCurrentViewState('shop');
+    }
+  };
+
+  const navigateToProduct = (slug: string) => {
+    const product = products.find((item) => item.slug === slug);
+    if (!product) {
+      showToast('This product is currently unavailable.');
+      return;
+    }
+    setSelectedProduct(product);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  useEffect(() => {
+    if (!activeProductSlug) {
+      setSelectedProductState(null);
+      return;
+    }
+    const product = products.find((item) => item.slug === activeProductSlug);
+    if (product) setSelectedProductState(product);
+  }, [activeProductSlug, products]);
+
+  useEffect(() => {
+    const client = supabase;
+    if (!client) return;
+
+    let active = true;
+    const loadStoreContent = async () => {
+      const [productResult, blogResult] = await Promise.all([
+        client.from('store_products').select('*').order('created_at', { ascending: false }),
+        client.from('store_blog_posts').select('*').order('published_at', { ascending: false }),
+      ]);
+
+      if (!active) return;
+      if (productResult.error) {
+        showToast(`Could not load the store catalog: ${productResult.error.message}`);
+      } else if (productResult.data.length > 0) {
+        setProducts(productResult.data.map((row) => mapStoreProduct(row)));
+      }
+
+      if (blogResult.error) {
+        showToast(`Could not load store articles: ${blogResult.error.message}`);
+      } else if (blogResult.data.length > 0) {
+        setBlogPosts(blogResult.data.map((row) => mapStoreBlogPost(row)));
+      }
+    };
+
+    void loadStoreContent();
+    const { data: { subscription } } = client.auth.onAuthStateChange(() => {
+      void loadStoreContent();
+    });
+
+    return () => {
+      active = false;
+      subscription.unsubscribe();
+    };
+  }, []);
 
   const applyCoupon = (code: string): boolean => {
     const formatted = code.trim().toUpperCase();
@@ -345,9 +565,9 @@ export const ShopProvider: React.FC<{ children: React.ReactNode }> = ({ children
       category,
       subCategory,
     });
-    setCurrentView('shop');
+    setCurrentViewState('shop');
     if (typeof window !== 'undefined') {
-      window.history.pushState({}, '', '/');
+      window.history.pushState({}, '', `/category/${category}`);
       window.scrollTo({ top: 0, behavior: 'smooth' });
     }
   };
@@ -426,23 +646,61 @@ export const ShopProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const isInWishlist = (productId: string) => wishlist.includes(productId);
 
-  const placeOrder = (customer: CustomerDetails, paymentMethod: PaymentMethod): Order => {
-    const totals = calculateCartTotals(cart, couponDiscount);
-    const orderNumber = `AUR-${Math.floor(100000 + Math.random() * 900000)}`;
+  const placeOrder = async (
+    customer: CustomerDetails,
+    paymentMethod: PaymentMethod
+  ): Promise<Order> => {
+    if (!supabase) {
+      throw new Error('Checkout is not connected to the store database yet. Please contact us on WhatsApp to place your order.');
+    }
+
+    if (cart.length === 0) {
+      throw new Error('Your shopping bag is empty.');
+    }
+
+    const { data, error } = await supabase.rpc('place_store_order', {
+      p_customer: customer,
+      p_items: cart.map((item) => ({
+        slug: item.product.slug,
+        size: item.selectedSize,
+        color: item.selectedColor.name,
+        quantity: item.quantity,
+      })),
+      p_payment_method: paymentMethod,
+      p_coupon_code: couponCode || null,
+    });
+
+    if (error) {
+      throw new Error(error.message || 'We could not save your order. Please try again or contact us on WhatsApp.');
+    }
+
+    if (
+      !data ||
+      typeof data !== 'object' ||
+      !('id' in data) ||
+      !('orderNumber' in data) ||
+      !('subtotal' in data) ||
+      !('discount' in data) ||
+      !('shippingFee' in data) ||
+      !('total' in data) ||
+      !('createdAt' in data)
+    ) {
+      throw new Error('The store returned an invalid order confirmation. Please contact us before retrying.');
+    }
 
     const newOrder: Order = {
-      id: `ord-${Date.now()}`,
-      orderNumber,
+      id: String(data.id),
+      orderNumber: String(data.orderNumber),
       items: [...cart],
-      subtotal: totals.subtotal,
-      discount: totals.discount,
-      shippingFee: totals.shippingFee,
-      total: totals.total,
-      couponCode: couponCode || undefined,
+      subtotal: Number(data.subtotal),
+      discount: Number(data.discount),
+      shippingFee: Number(data.shippingFee),
+      total: Number(data.total),
+      couponCode: typeof data.couponCode === 'string' ? data.couponCode : undefined,
       customer,
-      paymentMethod,
-      status: 'confirmed',
-      createdAt: new Date().toISOString()
+      paymentMethod: 'cod',
+      status: 'pending',
+      createdAt: String(data.createdAt),
     };
 
     setOrders((prev) => [newOrder, ...prev]);
@@ -455,55 +713,201 @@ export const ShopProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   // Dynamic Product Management
-  const addProduct = (newProdData: Omit<Product, 'id' | 'createdAt'>) => {
-    const newProduct: Product = {
-      ...newProdData,
-      id: `aur-${Date.now()}`,
-      createdAt: new Date().toISOString(),
-      rating: 5.0,
-      reviewCount: 0
-    };
+  const addProduct = async (newProdData: Omit<Product, 'id' | 'createdAt'>) => {
+    if (!supabase) {
+      showToast('Product changes require the connected Supabase store.');
+      return;
+    }
+
+    const { data, error } = await supabase
+      .from('store_products')
+      .insert({
+        ...toStoreProductRow({
+          ...newProdData,
+          id: '',
+          createdAt: new Date().toISOString(),
+          rating: 0,
+          reviewCount: 0,
+        }),
+        is_published: true,
+      })
+      .select('*')
+      .single();
+
+    if (error) {
+      showToast(`Could not save product: ${error.message}`);
+      return;
+    }
+
+    const newProduct = mapStoreProduct(data);
     setProducts((prev) => [newProduct, ...prev]);
-    showToast(`Product "${newProduct.title}" created successfully!`);
+    showToast(`Product "${newProduct.title}" created successfully.`);
   };
 
-  const updateProduct = (id: string, updates: Partial<Product>) => {
-    setProducts((prev) =>
-      prev.map((item) => (item.id === id ? { ...item, ...updates } : item))
-    );
-    showToast('Product updated successfully!');
+  const updateProduct = async (id: string, updates: Partial<Product>) => {
+    if (!supabase) {
+      showToast('Product changes require the connected Supabase store.');
+      return;
+    }
+
+    const existing = products.find((item) => item.id === id);
+    if (!existing) {
+      showToast('Could not find that product in the current catalog.');
+      return;
+    }
+
+    const updatedProduct = { ...existing, ...updates };
+    const { data, error } = await supabase
+      .from('store_products')
+      .update({
+        ...toStoreProductRow(updatedProduct),
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', id)
+      .select('*')
+      .single();
+
+    if (error) {
+      showToast(`Could not update product: ${error.message}`);
+      return;
+    }
+
+    const savedProduct = mapStoreProduct(data);
+    setProducts((prev) => prev.map((item) => (item.id === id ? savedProduct : item)));
+    showToast('Product updated successfully.');
   };
 
-  const deleteProduct = (id: string) => {
+  const deleteProduct = async (id: string) => {
+    if (!supabase) {
+      showToast('Product changes require the connected Supabase store.');
+      return;
+    }
+
+    const { data, error } = await supabase
+      .from('store_products')
+      .delete()
+      .eq('id', id)
+      .select('id')
+      .maybeSingle();
+
+    if (error) {
+      showToast(`Could not delete product: ${error.message}`);
+      return;
+    }
+    if (!data) {
+      showToast('Product was not deleted; it may already be unavailable.');
+      return;
+    }
+
     setProducts((prev) => prev.filter((item) => item.id !== id));
-    showToast('Product deleted from catalog.');
-  };
-
-  const resetCatalog = () => {
-    setProducts(INITIAL_PRODUCTS);
-    localStorage.removeItem(LOCAL_STORAGE_KEY_PRODUCTS);
-    showToast('Catalog reset to official Auren Attire baby wear defaults.');
+    showToast('Product deleted from the catalog.');
   };
 
   // Dynamic Blog Management
-  const addBlogPost = (postData: Omit<BlogPost, 'id' | 'publishedAt'>) => {
-    const newPost: BlogPost = {
-      ...postData,
-      id: `post-${Date.now()}`,
-      publishedAt: new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })
-    };
+  const addBlogPost = async (postData: Omit<BlogPost, 'id' | 'publishedAt'>) => {
+    if (!supabase) {
+      showToast('Article changes require the connected Supabase store.');
+      return;
+    }
+
+    const publishedAt = postData.isPublished ? new Date().toISOString() : null;
+    const { data, error } = await supabase
+      .from('store_blog_posts')
+      .insert({
+        slug: postData.slug,
+        title: postData.title,
+        category: postData.category,
+        author: postData.author,
+        read_time: postData.readTime,
+        cover_image: postData.coverImage,
+        excerpt: postData.excerpt,
+        content: postData.content,
+        tags: postData.tags ?? [],
+        is_published: postData.isPublished,
+        published_at: publishedAt,
+      })
+      .select('*')
+      .single();
+
+    if (error) {
+      showToast(`Could not save article: ${error.message}`);
+      return;
+    }
+
+    const newPost = mapStoreBlogPost(data);
     setBlogPosts((prev) => [newPost, ...prev]);
-    showToast(`Article "${newPost.title}" published!`);
+    showToast(`Article "${newPost.title}" saved.`);
   };
 
-  const updateBlogPost = (id: string, updates: Partial<BlogPost>) => {
-    setBlogPosts((prev) =>
-      prev.map((post) => (post.id === id ? { ...post, ...updates } : post))
-    );
-    showToast('Article updated successfully!');
+  const updateBlogPost = async (id: string, updates: Partial<BlogPost>) => {
+    if (!supabase) {
+      showToast('Article changes require the connected Supabase store.');
+      return;
+    }
+
+    const existing = blogPosts.find((post) => post.id === id);
+    if (!existing) {
+      showToast('Could not find that article in the current list.');
+      return;
+    }
+
+    const updatedPost = { ...existing, ...updates };
+    const { data, error } = await supabase
+      .from('store_blog_posts')
+      .update({
+        slug: updatedPost.slug,
+        title: updatedPost.title,
+        category: updatedPost.category,
+        author: updatedPost.author,
+        read_time: updatedPost.readTime,
+        cover_image: updatedPost.coverImage,
+        excerpt: updatedPost.excerpt,
+        content: updatedPost.content,
+        tags: updatedPost.tags ?? [],
+        is_published: updatedPost.isPublished,
+        published_at: updates.isPublished === false
+          ? null
+          : updates.isPublished === true
+            ? new Date().toISOString()
+            : undefined,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', id)
+      .select('*')
+      .single();
+
+    if (error) {
+      showToast(`Could not update article: ${error.message}`);
+      return;
+    }
+
+    const savedPost = mapStoreBlogPost(data);
+    setBlogPosts((prev) => prev.map((post) => (post.id === id ? savedPost : post)));
+    showToast('Article updated successfully.');
   };
 
-  const deleteBlogPost = (id: string) => {
+  const deleteBlogPost = async (id: string) => {
+    if (!supabase) {
+      showToast('Article changes require the connected Supabase store.');
+      return;
+    }
+
+    const { data, error } = await supabase
+      .from('store_blog_posts')
+      .delete()
+      .eq('id', id)
+      .select('id')
+      .maybeSingle();
+
+    if (error) {
+      showToast(`Could not delete article: ${error.message}`);
+      return;
+    }
+    if (!data) {
+      showToast('Article was not deleted; it may already be unavailable.');
+      return;
+    }
+
     setBlogPosts((prev) => prev.filter((post) => post.id !== id));
     showToast('Article deleted.');
   };
@@ -522,13 +926,11 @@ export const ShopProvider: React.FC<{ children: React.ReactNode }> = ({ children
         activeBlogSlug,
         navigateToBlog,
         navigateToBlogPost,
+        navigateToProduct,
         addBlogPost,
         updateBlogPost,
         deleteBlogPost,
         getBlogPostBySlug,
-        isAdminUnlocked,
-        unlockAdmin,
-        lockAdmin,
         cart,
         wishlist,
         filters,
@@ -561,7 +963,6 @@ export const ShopProvider: React.FC<{ children: React.ReactNode }> = ({ children
         addProduct,
         updateProduct,
         deleteProduct,
-        resetCatalog,
         toastMessage,
         showToast
       }}

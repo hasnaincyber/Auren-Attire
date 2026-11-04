@@ -91,7 +91,6 @@ export const FeaturedSections: React.FC = () => {
             onClick={() => {
               setFilters((prev) => ({ ...prev, category: newArrivalTab }));
               setCurrentView('shop');
-              window.history.pushState({}, '', '/');
             }}
             className="inline-flex items-center gap-2 px-8 py-3.5 border border-stone-900 hover:bg-stone-900 hover:text-white text-stone-900 text-xs font-semibold tracking-widest uppercase transition-all duration-300"
           >

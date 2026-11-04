@@ -1,5 +1,5 @@
 import React from 'react';
-import { Heart, Eye, ShoppingBag, Star, Sparkles } from 'lucide-react';
+import { Heart, Eye, ShoppingBag, Sparkles } from 'lucide-react';
 import { Product } from '../types';
 import { useShop } from '../context/ShopContext';
 import { calculateDiscountPercent, formatPKR } from '../utils/shop';
@@ -10,7 +10,7 @@ interface ProductCardProps {
 
 export const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
   const { 
-    setSelectedProduct, 
+    navigateToProduct,
     toggleWishlist, 
     isInWishlist, 
     addToCart 
@@ -29,7 +29,7 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
 
   return (
     <div 
-      onClick={() => setSelectedProduct(product)}
+      onClick={() => navigateToProduct(product.slug)}
       className="group relative flex flex-col bg-white border border-stone-200/80 rounded-sm overflow-hidden hover:shadow-xl transition-all duration-300 cursor-pointer"
     >
       {/* 1. Image Container */}
@@ -94,7 +94,7 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
             type="button"
             onClick={(e) => {
               e.stopPropagation();
-              setSelectedProduct(product);
+              navigateToProduct(product.slug);
             }}
             className="flex-1 py-2.5 bg-stone-900/90 hover:bg-stone-900 text-white text-xs font-semibold tracking-wider uppercase backdrop-blur-xs flex items-center justify-center gap-1.5 transition-colors"
           >
@@ -118,17 +118,22 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
       <div className="p-2.5 sm:p-4 flex flex-col flex-1 justify-between bg-white">
         <div>
           {/* Category & Occasion */}
-          <div className="flex items-center justify-between text-[10px] sm:text-[11px] text-stone-500 uppercase tracking-wider mb-1 font-medium">
+          <div className="flex items-center text-[10px] sm:text-[11px] text-stone-500 uppercase tracking-wider mb-1 font-medium">
             <span className="truncate pr-1">{product.category.replace('-', ' ')}</span>
-            <div className="flex items-center gap-0.5 sm:gap-1 text-amber-600 font-semibold shrink-0">
-              <Star className="w-2.5 h-2.5 sm:w-3 sm:h-3 fill-amber-500 text-amber-500" />
-              <span>{product.rating}</span>
-            </div>
           </div>
 
           {/* Product Title */}
           <h3 className="font-editorial text-xs sm:text-base font-bold text-stone-900 leading-snug line-clamp-2 hover:text-amber-800 transition-colors">
-            {product.title}
+            <a
+              href={`/product/${encodeURIComponent(product.slug)}`}
+              onClick={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                navigateToProduct(product.slug);
+              }}
+            >
+              {product.title}
+            </a>
           </h3>
 
           {/* Color preview dots */}

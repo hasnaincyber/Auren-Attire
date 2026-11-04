@@ -1,14 +1,12 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
+import type { FormEvent } from 'react';
 import { 
   Package, 
   Plus, 
   Trash2, 
   Edit3, 
   Database, 
-  RotateCcw, 
   ShoppingBag, 
-  Check, 
-  Copy, 
   BookOpen,
   Lock,
   Eye,
@@ -18,8 +16,57 @@ import {
   FileText
 } from 'lucide-react';
 import { useShop } from '../context/ShopContext';
-import { BlogPost, Product } from '../types';
+import { BlogPost, Order, Product } from '../types';
 import { formatPKR } from '../utils/shop';
+import { isSupabaseConfigured, supabase } from '../lib/supabase';
+import type { Session } from '@supabase/supabase-js';
+
+type StoreOrderRow = {
+  id: string;
+  order_number: string;
+  customer_name: string;
+  phone: string;
+  email: string | null;
+  address: string;
+  city: string;
+  province: string;
+  postal_code: string | null;
+  order_notes: string | null;
+  payment_method: 'cod';
+  status: Order['status'];
+  subtotal: number;
+  discount: number;
+  shipping_fee: number;
+  total: number;
+  coupon_code: string | null;
+  created_at: string;
+};
+
+function mapStoreOrder(row: StoreOrderRow): Order {
+  return {
+    id: row.id,
+    orderNumber: row.order_number,
+    items: [],
+    subtotal: Number(row.subtotal),
+    discount: Number(row.discount),
+    shippingFee: Number(row.shipping_fee),
+    total: Number(row.total),
+    couponCode: row.coupon_code ?? undefined,
+    customer: {
+      fullName: row.customer_name,
+      email: row.email ?? '',
+      phone: row.phone,
+      address: row.address,
+      city: row.city,
+      province: row.province,
+      postalCode: row.postal_code ?? undefined,
+      orderNotes: row.order_notes ?? undefined,
+    },
+    paymentMethod: 'cod',
+    status: row.status,
+    createdAt: row.created_at,
+  };
+}
 
 export const AdminDashboard: React.FC = () => {
   const { 
@@ -27,18 +74,165 @@ export const AdminDashboard: React.FC = () => {
     addProduct, 
     updateProduct, 
     deleteProduct, 
-    resetCatalog, 
-    orders, 
     blogPosts,
     addBlogPost,
     updateBlogPost,
     deleteBlogPost,
-    lockAdmin,
     navigateToBlog,
     navigateToBlogPost,
     showToast,
     setCurrentView 
   } = useShop();
+
+  const [adminSession, setAdminSession] = useState<Session | null>(null);
+  const [isStoreAdmin, setIsStoreAdmin] = useState(false);
+  const [authLoading, setAuthLoading] = useState(true);
+  const [authError, setAuthError] = useState<string | null>(null);
+  const [orders, setOrders] = useState<Order[]>([]);
+  const [loginEmail, setLoginEmail] = useState('');
+  const [loginPassword, setLoginPassword] = useState('');
+  const [isSigningIn, setIsSigningIn] = useState(false);
+  const [orderSearch, setOrderSearch] = useState('');
+  const [orderStatusFilter, setOrderStatusFilter] = useState<'all' | Order['status']>('all');
+
+  const visibleOrders = orders.filter((order) => {
+    const query = orderSearch.trim().toLowerCase();
+    const matchesSearch = !query ||
+      order.orderNumber.toLowerCase().includes(query) ||
+      order.customer.fullName.toLowerCase().includes(query) ||
+      order.customer.phone.toLowerCase().includes(query);
+    return matchesSearch && (orderStatusFilter === 'all' || order.status === orderStatusFilter);
+  });
+
+  useEffect(() => {
+    if (!supabase) {
+      setAuthLoading(false);
+      return;
+    }
+
+    let active = true;
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (active) setAdminSession(session);
+    });
+
+    void supabase.auth.getSession().then(({ data, error }) => {
+      if (!active) return;
+      if (error) setAuthError(error.message);
+      setAdminSession(data.session);
+      setAuthLoading(false);
+    });
+
+    return () => {
+      active = false;
+      subscription.unsubscribe();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!supabase || !adminSession) {
+      setIsStoreAdmin(false);
+      return;
+    }
+
+    let active = true;
+    setAuthLoading(true);
+    setAuthError(null);
+    void supabase
+      .from('store_admins')
+      .select('user_id')
+      .eq('user_id', adminSession.user.id)
+      .maybeSingle()
+      .then(({ data, error }) => {
+        if (!active) return;
+        if (error) {
+          setAuthError(`Could not verify store-admin access: ${error.message}`);
+          setIsStoreAdmin(false);
+        } else {
+          setIsStoreAdmin(Boolean(data));
+        }
+        setAuthLoading(false);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [adminSession]);
+
+  useEffect(() => {
+    const client = supabase;
+    if (!client || !isStoreAdmin) {
+      setOrders([]);
+      return;
+    }
+
+    let active = true;
+    const loadOrders = async () => {
+      const { data, error } = await client
+        .from('store_orders')
+        .select('*')
+        .order('created_at', { ascending: false })
+        .limit(100);
+
+      if (!active) return;
+      if (error) {
+        showToast(`Could not load orders: ${error.message}`);
+        return;
+      }
+      setOrders(data.map((row) => mapStoreOrder(row)));
+    };
+
+    void loadOrders();
+    return () => {
+      active = false;
+    };
+  }, [isStoreAdmin]);
+
+  const handleAdminSignIn = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!supabase) return;
+
+    setIsSigningIn(true);
+    setAuthError(null);
+    const { data, error } = await supabase.auth.signInWithPassword({
+      email: loginEmail.trim(),
+      password: loginPassword,
+    });
+    if (error) {
+      setAuthError(`Sign-in failed: ${error.message}`);
+    } else {
+      setAdminSession(data.session);
+      setLoginPassword('');
+    }
+    setIsSigningIn(false);
+  };
+
+  const handleAdminSignOut = async () => {
+    if (!supabase) return;
+    const { error } = await supabase.auth.signOut();
+    if (error) {
+      showToast(`Could not sign out: ${error.message}`);
+      return;
+    }
+    setAdminSession(null);
+    setIsStoreAdmin(false);
+    setCurrentView('home');
+  };
+
+  const handleOrderStatusChange = async (order: Order, status: Order['status']) => {
+    if (!supabase) return;
+    const { error } = await supabase
+      .from('store_orders')
+      .update({ status, updated_at: new Date().toISOString() })
+      .eq('id', order.id);
+
+    if (error) {
+      showToast(`Could not update order ${order.orderNumber}: ${error.message}`);
+      return;
+    }
+    setOrders((previous) =>
+      previous.map((item) => item.id === order.id ? { ...item, status } : item)
+    );
+  };
 
   const [activeTab, setActiveTab] = useState<'products' | 'blogs' | 'orders' | 'supabase'>('products');
   
@@ -71,8 +265,6 @@ export const AdminDashboard: React.FC = () => {
   const [blogContent, setBlogContent] = useState('');
   const [blogIsPublished, setBlogIsPublished] = useState(true);
 
-  const [copiedSql, setCopiedSql] = useState(false);
-
   // --- Handlers: Products ---
   const handleSaveProdEdit = (id: string) => {
     updateProduct(id, { price: editPrice, stock: editStock });
@@ -101,7 +293,7 @@ export const AdminDashboard: React.FC = () => {
       isNewArrival: true,
       isBestSeller: false,
       stock: 20,
-      rating: 5.0,
+      rating: 0,
       reviewCount: 0,
       featured: false
     });
@@ -175,30 +367,78 @@ export const AdminDashboard: React.FC = () => {
     setIsAddBlogOpen(false);
   };
 
-  const sqlSchemaText = `-- Auren Attire Supabase Schema
--- Includes Products, Blog Articles, Orders & Security Policies
-CREATE TABLE public.blog_posts (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  slug VARCHAR(255) UNIQUE NOT NULL,
-  title VARCHAR(255) NOT NULL,
-  category VARCHAR(100) NOT NULL,
-  author VARCHAR(100) DEFAULT 'Auren Editorial',
-  read_time VARCHAR(50) DEFAULT '4 min read',
-  cover_image TEXT,
-  excerpt TEXT,
-  content TEXT NOT NULL,
-  is_published BOOLEAN DEFAULT true,
-  created_at TIMESTAMPTZ DEFAULT now()
-);
-ALTER TABLE public.blog_posts ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "Public read blog_posts" ON public.blog_posts FOR SELECT USING (is_published = true);`;
+  if (!isSupabaseConfigured) {
+    return (
+      <section className="max-w-xl mx-auto px-4 py-16 text-center">
+        <h1 className="font-editorial text-3xl text-stone-900">Store owner sign in</h1>
+        <p className="mt-4 text-sm text-stone-600">
+          Admin access is unavailable until Supabase is configured and the store schema is installed.
+          No shared PIN or browser-only unlock is used.
+        </p>
+      </section>
+    );
+  }
 
-  const copySql = () => {
-    navigator.clipboard.writeText(sqlSchemaText);
-    setCopiedSql(true);
-    showToast('Supabase SQL Schema copied!');
-    setTimeout(() => setCopiedSql(false), 2500);
-  };
+  if (authLoading) {
+    return (
+      <section className="max-w-xl mx-auto px-4 py-16 text-center text-sm text-stone-600" aria-live="polite">
+        Checking store-owner access…
+      </section>
+    );
+  }
+
+  if (!adminSession || !isStoreAdmin) {
+    return (
+      <section className="max-w-md mx-auto px-4 py-16">
+        <h1 className="font-editorial text-3xl text-stone-900 text-center">Store owner sign in</h1>
+        {adminSession ? (
+          <div className="mt-6 rounded border border-amber-200 bg-amber-50 p-4 text-sm text-stone-700">
+            <p>This account is authenticated but is not authorized to administer this store.</p>
+            <button type="button" onClick={handleAdminSignOut} className="mt-3 underline">
+              Sign out
+            </button>
+          </div>
+        ) : (
+          <form onSubmit={handleAdminSignIn} className="mt-6 space-y-4 rounded border border-stone-200 bg-white p-6">
+            <label className="block text-sm text-stone-700">
+              Email
+              <input
+                type="email"
+                required
+                autoComplete="username"
+                value={loginEmail}
+                onChange={(event) => setLoginEmail(event.target.value)}
+                className="mt-1 w-full rounded border border-stone-300 px-3 py-2"
+              />
+            </label>
+            <label className="block text-sm text-stone-700">
+              Password
+              <input
+                type="password"
+                required
+                autoComplete="current-password"
+                value={loginPassword}
+                onChange={(event) => setLoginPassword(event.target.value)}
+                className="mt-1 w-full rounded border border-stone-300 px-3 py-2"
+              />
+            </label>
+            {authError && <p role="alert" className="text-sm text-rose-700">{authError}</p>}
+            <button
+              type="submit"
+              disabled={isSigningIn}
+              className="w-full rounded bg-stone-900 px-4 py-3 text-sm font-semibold text-white disabled:opacity-60"
+            >
+              {isSigningIn ? 'Signing in…' : 'Sign in'}
+            </button>
+          </form>
+        )}
+        {!adminSession && authError && <p role="alert" className="mt-3 text-center text-sm text-rose-700">{authError}</p>}
+        <p className="mt-4 text-center text-xs text-stone-500">
+          Admin accounts must be created in Supabase and explicitly added to the store-admin list.
+        </p>
+      </section>
+    );
+  }
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10 sm:py-16">
@@ -219,10 +459,7 @@ CREATE POLICY "Public read blog_posts" ON public.blog_posts FOR SELECT USING (is
 
         <div className="flex items-center gap-3">
           <button
-            onClick={() => {
-              lockAdmin();
-              setCurrentView('home');
-            }}
+            onClick={() => void handleAdminSignOut()}
             className="px-3.5 py-2 text-xs font-semibold text-stone-600 bg-stone-100 hover:bg-stone-200 rounded border border-stone-300 flex items-center gap-1.5 transition-colors cursor-pointer"
             title="Lock administrative console"
           >
@@ -304,12 +541,8 @@ CREATE POLICY "Public read blog_posts" ON public.blog_posts FOR SELECT USING (is
       {/* 1. Products Tab */}
       {activeTab === 'products' && (
         <div className="bg-white border border-stone-200 rounded-sm overflow-hidden shadow-xs">
-          <div className="p-4 border-b border-stone-100 flex items-center justify-between text-xs text-stone-500">
-            <span>Manage live baby wear pricing, inventory, and variants</span>
-            <button onClick={resetCatalog} className="text-stone-500 hover:text-stone-900 underline flex items-center gap-1">
-              <RotateCcw className="w-3 h-3" />
-              <span>Reset Default Products</span>
-            </button>
+          <div className="p-4 border-b border-stone-100 text-xs text-stone-500">
+            Manage live baby wear pricing, inventory, and variants.
           </div>
           <div className="overflow-x-auto">
             <table className="w-full text-left text-xs">
@@ -524,21 +757,64 @@ CREATE POLICY "Public read blog_posts" ON public.blog_posts FOR SELECT USING (is
       {/* 3. Orders Log Tab */}
       {activeTab === 'orders' && (
         <div className="bg-white border border-stone-200 rounded-sm p-6">
-          {orders.length === 0 ? (
+          <div className="mb-5 grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <label className="text-xs font-medium text-stone-700">
+              Search orders
+              <input
+                type="search"
+                value={orderSearch}
+                onChange={(event) => setOrderSearch(event.target.value)}
+                placeholder="Order number, customer, or phone"
+                className="mt-1 w-full rounded border border-stone-300 px-3 py-2"
+              />
+            </label>
+            <label className="text-xs font-medium text-stone-700">
+              Filter by status
+              <select
+                value={orderStatusFilter}
+                onChange={(event) => setOrderStatusFilter(event.target.value as 'all' | Order['status'])}
+                className="mt-1 w-full rounded border border-stone-300 px-3 py-2"
+              >
+                <option value="all">All statuses</option>
+                <option value="pending">Pending</option>
+                <option value="confirmed">Confirmed</option>
+                <option value="processing">Processing</option>
+                <option value="shipped">Shipped</option>
+                <option value="delivered">Delivered</option>
+                <option value="cancelled">Cancelled</option>
+              </select>
+            </label>
+          </div>
+          {visibleOrders.length === 0 ? (
             <div className="text-center py-12 text-stone-500">
               <ShoppingBag className="w-10 h-10 text-stone-300 mx-auto mb-3" />
-              <p className="font-editorial text-lg font-bold text-stone-800">No orders recorded yet</p>
+              <p className="font-editorial text-lg font-bold text-stone-800">
+                {orders.length === 0 ? 'No orders recorded yet' : 'No orders match your search'}
+              </p>
             </div>
           ) : (
             <div className="space-y-4">
-              {orders.map((ord) => (
+              {visibleOrders.map((ord) => (
                 <div key={ord.id} className="p-4 bg-stone-50 border border-stone-200 rounded text-xs space-y-2">
                   <div className="flex flex-wrap items-center justify-between gap-2 border-b border-stone-200 pb-2">
                     <span className="font-mono font-bold text-stone-900">{ord.orderNumber}</span>
                     <span className="text-[10px] text-stone-400">{new Date(ord.createdAt).toLocaleString()}</span>
-                    <span className="px-2 py-0.5 bg-amber-100 text-amber-900 rounded font-semibold uppercase text-[10px]">
-                      {ord.paymentMethod === 'cod' ? 'Cash on Delivery (COD)' : ord.paymentMethod}
-                    </span>
+                    <label className="flex items-center gap-2">
+                      <span className="sr-only">Status for {ord.orderNumber}</span>
+                      <select
+                        value={ord.status}
+                        onChange={(event) => void handleOrderStatusChange(ord, event.target.value as Order['status'])}
+                        className="rounded border border-stone-300 bg-white px-2 py-1 font-semibold uppercase text-[10px]"
+                      >
+                        <option value="pending">Pending</option>
+                        <option value="confirmed">Confirmed</option>
+                        <option value="processing">Processing</option>
+                        <option value="shipped">Shipped</option>
+                        <option value="delivered">Delivered</option>
+                        <option value="cancelled">Cancelled</option>
+                      </select>
+                      <span className="text-[10px] text-stone-500">COD</span>
+                    </label>
                   </div>
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-stone-600">
                     <div>
@@ -548,6 +824,10 @@ CREATE POLICY "Public read blog_posts" ON public.blog_posts FOR SELECT USING (is
                     <div>
                       <strong className="text-stone-900 block">Delivery City:</strong>
                       <span>{ord.customer.city}, {ord.customer.province}</span>
+                    </div>
+                    <div className="sm:col-span-2">
+                      <strong className="text-stone-900 block">Delivery Address:</strong>
+                      <span>{ord.customer.address}</span>
                     </div>
                     <div>
                       <strong className="text-stone-900 block">Total:</strong>
@@ -564,29 +844,18 @@ CREATE POLICY "Public read blog_posts" ON public.blog_posts FOR SELECT USING (is
       {/* 4. Supabase Architecture Tab */}
       {activeTab === 'supabase' && (
         <div className="bg-white border border-stone-200 rounded-sm p-6 sm:p-8 space-y-6">
-          <div className="flex items-start justify-between">
-            <div>
-              <div className="flex items-center gap-2 text-stone-900 font-bold text-sm mb-1">
-                <Database className="w-5 h-5 text-stone-700" />
-                <span>Supabase PostgreSQL Schema for Products & Blog Articles</span>
-              </div>
-              <p className="text-xs text-stone-600 max-w-2xl leading-relaxed font-light">
-                Both products and blog articles are structured with a Supabase PostgreSQL schema. Run this script in the Supabase SQL Editor to synchronize live persistence.
-              </p>
-            </div>
-
-            <button
-              onClick={copySql}
-              className="px-3.5 py-2 bg-stone-900 hover:bg-stone-800 text-white text-xs font-semibold rounded flex items-center gap-1.5 transition-colors cursor-pointer"
-            >
-              {copiedSql ? <Check className="w-4 h-4 text-emerald-400" /> : <Copy className="w-4 h-4" />}
-              <span>{copiedSql ? 'Copied' : 'Copy SQL Schema'}</span>
-            </button>
+          <div className="flex items-center gap-2 text-stone-900 font-bold text-sm">
+            <Database className="w-5 h-5 text-stone-700" />
+            <span>Supabase store connection</span>
           </div>
-
-          <div className="bg-stone-900 text-stone-100 p-4 rounded font-mono text-xs overflow-x-auto max-h-60 border border-stone-800">
-            <pre>{sqlSchemaText}</pre>
-          </div>
+          <p className="text-sm text-stone-600 leading-relaxed">
+            Apply the additive migration at <code>src/db/store-migration.sql</code> in your Supabase SQL Editor.
+            It adds separate store tables and row-level security without dropping the existing schema.
+          </p>
+          <p className="text-sm text-stone-600 leading-relaxed">
+            Configure the Vite public project URL and anon key in the local environment and Netlify.
+            Never place a Supabase service-role key in browser code or a VITE-prefixed variable.
+          </p>
         </div>
       )}
 

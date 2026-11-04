@@ -81,7 +81,7 @@ export interface CustomerDetails {
   orderNotes?: string;
 }
 
-export type PaymentMethod = 'cod' | 'bank_transfer' | 'card_online';
+export type PaymentMethod = 'cod';
 
 export interface Order {
   id: string;
@@ -94,7 +94,7 @@ export interface Order {
   couponCode?: string;
   customer: CustomerDetails;
   paymentMethod: PaymentMethod;
-  status: 'pending' | 'confirmed' | 'dispatched' | 'delivered';
+  status: 'pending' | 'confirmed' | 'processing' | 'shipped' | 'dispatched' | 'delivered' | 'cancelled';
   createdAt: string;
 }
 
@@ -113,4 +113,15 @@ export interface BlogPost {
   tags?: string[];
 }
 
-export type PageView = 'home' | 'shop' | 'blog' | 'blog-post' | 'about' | 'contact' | 'shipping' | 'returns' | 'admin';
+export type PageView =
+  | 'home'
+  | 'shop'
+  | 'blog'
+  | 'blog-post'
+  | 'about'
+  | 'contact'
+  | 'shipping'
+  | 'returns'
+  | 'privacy'
+  | 'terms'
+  | 'admin';
