@@ -91,7 +91,7 @@ const viewPaths: Partial<Record<PageView, string>> = {
   returns: '/return-policy',
   privacy: '/privacy-policy',
   terms: '/terms-and-conditions',
-  admin: '/admin',
+  admin: '/admin/login',
 };
 
 function viewFromPath(path: string): PageView {
@@ -104,7 +104,7 @@ function viewFromPath(path: string): PageView {
   if (normalizedPath === '/return-policy') return 'returns';
   if (normalizedPath === '/privacy-policy') return 'privacy';
   if (normalizedPath === '/terms-and-conditions') return 'terms';
-  if (normalizedPath === '/admin') return 'admin';
+  if (normalizedPath === '/admin' || normalizedPath === '/admin/login') return 'admin';
   if (
     normalizedPath === '/shop' ||
     normalizedPath.startsWith('/category/') ||
